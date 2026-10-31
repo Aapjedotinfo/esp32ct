@@ -215,6 +215,10 @@ Ranges and noise floors for the SCT013 clamps are estimates, not measurements.
 
 ## Building the board
 
+**Ordering.** The Gerbers work with any PCB fab. Disclosure: I use [Aisler](https://aisler.net)
+and earn shop credit when you order through my referral code `MakeInEurope-VYPFM` (you get
+€10 off your first order). This is not an endorsement by Aisler.
+
 1. Order `esp32ct-revc-gerbers.zip` from any fabricator (2 layers, 1.6 mm, HASL).
 2. Check before you order, see [`hardware/OPEN_PUNTEN.md`](hardware/OPEN_PUNTEN.md):
    - row spacing of your HW-178 (15.24 mm)
