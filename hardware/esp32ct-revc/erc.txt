@@ -1,0 +1,24 @@
+ERC report (2026-09-25T10:02:46, Encoding UTF8)
+Report includes: Errors, Warnings
+
+***** Sheet /
+
+***** Sheet /Voeding en VBIAS/
+
+***** Sheet /Multiplexer (HW-178)/
+
+***** Sheet /CT-kanalen 1-16/
+
+***** Sheet /P1 slimme meter/
+
+***** Sheet /Deurbel en watermeter/
+
+***** Sheet /P1-uitgang naar laadpaal/
+
+ ** ERC messages: 0  Errors 0  Warnings 0
+
+ ** Ignored checks:
+    - Global label only appears once in the schematic
+    - Four connection points are joined together
+    - SPICE model issue
+    - Assigned footprint doesn't match footprint filters

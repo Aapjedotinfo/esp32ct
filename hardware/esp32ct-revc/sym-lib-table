@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "esp32ct")(type "KiCad")(uri "${KIPRJMOD}/esp32ct.kicad_sym")(options "")(descr "Symbolen voor het esp32ct-bord"))
+)

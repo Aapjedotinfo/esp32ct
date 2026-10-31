@@ -1,0 +1,13 @@
+MX126_2P_5mm_krap.kicad_mod
+
+Kopie van TerminalBlock_MaiXu_MX126-5.0-02P_1x02_P5.00mm uit de standaard
+footprintbibliotheek van KiCad 10.0.6 (CC-BY-SA 4.0, met de uitzondering dat
+ontwerpen die de bibliotheek gebruiken daar niet onder vallen).
+
+Twee wijzigingen, zodat de 16 CT-klemmen op 10,795 mm steek naast elkaar
+mogen staan, met ~0,3 mm tussen de plastic bodies:
+- de courtyard ligt op de body (-3,13..7,63 x -4,13..3,93) in plaats van
+  0,5 mm daarbuiten
+- de zijkanten van de zeefdruk liggen op x = -2,95 en 7,45 in plaats van
+  -3,12 en 7,62; met de lijndikte erbij overlapten die van twee buren
+De pads en het 3D-model zijn ongewijzigd.

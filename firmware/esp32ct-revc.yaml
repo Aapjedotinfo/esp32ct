@@ -1,0 +1,1906 @@
+substitutions:
+  name: esp32ct-revc
+  friendly_name: ESP32CT revC
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.11.0
+  name_add_mac_suffix: false
+  project:
+    name: p1reader.slimmelezer-component
+    version: "1.0"
+    #
+
+esp32:
+  board: mhetesp32minikit
+  framework:
+    type: arduino
+
+## Enable/Disable logging
+logger:
+  level: INFO  # Don't use DEBUG in production
+  logs:
+    # Reduce verbosity for components that might log sensitive data
+    wifi: WARN
+    api: WARN
+    modbus_controller.sensor: WARN
+    modbus_controller.output: WARN
+    modbus.number: WARN
+    esp32.preferences: WARN
+    sensor: WARN
+    text_sensor: WARN
+    button: WARN
+    number: WARN
+    component: WARN
+    ble_client: WARN
+    cd74hc4067: WARN
+    ct_clamp: WARN
+    dsmr: WARN
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret esp32ct_api_encryption
+  actions:
+    - action: meterstand_water
+      variables:
+        meter_value: float
+      then:
+        - globals.set:
+            id: initial_water_usage
+            value: !lambda "return ( meter_value * atof(id(Select_pulse_water).current_option().c_str()) ) ;"
+        - globals.set:
+            id: total_water_pulses
+            value:  "0"
+        - globals.set:
+            id: water_m3_geteld
+            value:  "0"
+
+ota:
+  - platform: esphome
+  - platform: web_server
+
+wifi:
+  ssid: !secret wifi_iot_ssid
+  password: !secret wifi_iot_password
+  reboot_timeout: 0s
+  fast_connect: true
+  power_save_mode: high
+  min_auth_mode: WPA2
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Fallback ${name}"
+    password: !secret fallback_password
+    ap_timeout: 15s
+
+captive_portal:
+  id: id_captive_portal
+
+# Enable Web server.
+web_server:
+  port: 80
+  version: 3
+  sorting_groups:
+    - id: grp_p1
+      name: "P1 / Slimme meter"
+      sorting_weight: 10
+    - id: grp_gas
+      name: "Gas"
+      sorting_weight: 20
+    - id: grp_water
+      name: "Watermeter"
+      sorting_weight: 30
+    - id: grp_doorbell
+      name: "Deurbel"
+      sorting_weight: 40
+    - id: grp_mux1
+      name: "Mux 1 - groepen (ch 1-16)"
+      sorting_weight: 50
+
+# Sync time with Home Assistant.
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# Text sensors with general information.
+text_sensor:
+  # Expose ESPHome version as sensor.
+  - platform: version
+    name: ${name} ESPHome Version
+  # Expose WiFi information as sensors.
+  - platform: wifi_info
+    ip_address:
+      name: ${name} IP
+    ssid:
+      name: ${name} SSID
+    bssid:
+      name: ${name} BSSID
+
+  - platform: dsmr
+    electricity_tariff:
+      name: "Electricity Tariff"
+      web_server:
+        sorting_group_id: grp_p1
+      filters:
+        - map:
+          - 0001 -> Low
+          - 0002 -> Normal
+    identification:
+      name: "DSMR Identification"
+      web_server:
+        sorting_group_id: grp_p1
+    p1_version:
+      name: "DSMR Version"
+      web_server:
+        sorting_group_id: grp_p1
+
+# Create a button to restart the unit from HomeAssistant. Rarely needed, but can be handy.
+button:
+  - platform: restart
+    name: "Restart ${friendly_name}"
+
+  - platform: template
+    name: "Reset kWh Totals"
+    icon: mdi:restart
+    on_press:
+      then:
+        - lambda: id(tde_laadpaal).publish_state_and_save(0);
+
+cd74hc4067:
+  - id: cd74hc4067_shared
+    delay: 2ms
+    pin_s0:
+      number: GPIO13
+    pin_s1:
+      number: GPIO4    # rev C: was GPIO12 (strapping pin)
+    pin_s2:
+      number: GPIO14
+    pin_s3:
+      number: GPIO27
+
+uart:
+  - rx_pin: GPIO18
+    baud_rate: 115200
+    rx_buffer_size: 1700
+    id: uart_bus
+  # rev C: nagebootste P1-poort naar de laadpaal. Q4 inverteert al in hardware,
+  # dus niet inverted. Het doorsturen van het telegram zit er nog niet in.
+  - tx_pin: GPIO17
+    baud_rate: 115200
+    id: uart_p1out
+
+dsmr:
+  id: dsmr_instance
+  uart_id: uart_bus
+  max_telegram_length: 1700
+  request_pin: GPIO23   # rev C: was GPIO19
+  request_interval: 1s
+
+#    buffer_size: 3072
+#    protocol: ascii
+
+globals:
+  # P1-uitgang (nagebootste slimme meter): de velden zijn number-entities
+  # (P1 Out ...). Hier alleen hulpwaarden; de kWh-sommen worden elke 10 min
+  # in de number-entities opgeslagen, om het flash te sparen.
+  - id: p1o_acc
+    type: std::array<double, 4>
+    restore_value: no
+  - id: p1o_acc_init
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: p1o_acc_save
+    type: uint32_t
+    restore_value: no
+    initial_value: '0'
+  - id: p1o_wasactief
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: house
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: garage
+    type: bool
+    restore_value: false
+    initial_value: 'false'
+  - id: initial_water_usage
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  - id: total_water_pulses
+    type: int
+    restore_value: yes
+    initial_value: '0'
+  # 08-09-2026: de meterstand liep op via total_water_pulses, en die wordt opgehoogd
+  # door de binary_sensor op GPIO32 - gepold, zonder ontdendering. Elke glitch bij het
+  # opstarten telde een liter mee; over juli t/m september liep dat op tot 33,858 m3
+  # spookverbruik. Deze global telt hetzelfde water, maar via de pulse_meter met zijn
+  # internal_filter van 50 ms. total_water_pulses blijft gewoon lopen zodat je de twee
+  # naast elkaar kunt leggen.
+  - id: water_m3_geteld
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  # 14-09-2026: wat de debietgrens hieronder heeft weggegooid, in m3. Alleen om achteraf
+  # te kunnen zien dat hij iets deed en hoeveel - telt nergens mee.
+  - id: water_m3_genegeerd
+    type: float
+    restore_value: yes
+    initial_value: '0'
+#------------------------# SELECTIE/OPTIES #------------------------#
+
+select:
+  # water per m3 rate
+  - platform: template
+    name: "Water Pulse Rate per m3"
+    web_server:
+      sorting_group_id: grp_water
+    id: Select_pulse_water
+    optimistic: true
+    options:
+      - "0.0001"
+      - "0.0005"
+      - "0.001"
+      - "0.01"
+      - "0.1"
+    initial_option: "0.001"
+    restore_value: yes
+
+#------------------------# SENSOR BLOCK #------------------------#
+# Sensors with general information.
+sensor:
+  # Uptime sensor.
+  - platform: uptime
+    name: ${name} Uptime
+
+  # WiFi Signal sensor.
+  - platform: wifi_signal
+    name: ${name} WiFi Signal
+    update_interval: 120s
+
+#------------------------# P1 Meter #------------------------#
+  - platform: dsmr
+    energy_delivered_tariff1:
+      id: p1_cons_dal
+      name: "Consumption Dal"
+      web_server:
+        sorting_group_id: grp_p1
+    energy_delivered_tariff2:
+      id: p1_cons_normaal
+      name: "Consumption Normaal"
+      web_server:
+        sorting_group_id: grp_p1
+    energy_returned_tariff1:
+      id: p1_prod_dal
+      name: "Production Dal"
+      web_server:
+        sorting_group_id: grp_p1
+    energy_returned_tariff2:
+      id: p1_prod_normaal
+      name: "Production Normaal"
+      web_server:
+        sorting_group_id: grp_p1
+    power_delivered:
+      name: "Consumption"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    power_returned:
+      name: "Production"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    electricity_failures:
+      name: "Electricity Failures"
+      web_server:
+        sorting_group_id: grp_p1
+      icon: mdi:alert
+    electricity_long_failures:
+      name: "Long Electricity Failures"
+      web_server:
+        sorting_group_id: grp_p1
+      icon: mdi:alert
+    voltage_l1:
+      id: p1_v_l1
+      name: "Voltage L1"
+      web_server:
+        sorting_group_id: grp_p1
+    voltage_l2:
+      id: p1_v_l2
+      name: "Voltage L2"
+      web_server:
+        sorting_group_id: grp_p1
+    voltage_l3:
+      id: p1_v_l3
+      name: "Voltage L3"
+      web_server:
+        sorting_group_id: grp_p1
+    current_l1:
+      name: "Current L1"
+      web_server:
+        sorting_group_id: grp_p1
+    current_l2:
+      name: "Current L2"
+      web_server:
+        sorting_group_id: grp_p1
+    current_l3:
+      name: "Current L3"
+      web_server:
+        sorting_group_id: grp_p1
+    power_delivered_l1:
+      id: cons_l1
+      name: "Consumption L1"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    power_delivered_l2:
+      id: cons_l2
+      name: "Consumption L2"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    power_delivered_l3:
+      id: cons_l3
+      name: "Consumption L3"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    power_returned_l1:
+      id: prod_l1
+      name: "Production L1"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    power_returned_l2:
+      id: prod_l2
+      name: "Production L2"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    power_returned_l3:
+      id: prod_l3
+      name: "Production L3"
+      web_server:
+        sorting_group_id: grp_p1
+      accuracy_decimals: 3
+    gas_delivered:
+      name: "Gas Consumption"
+      web_server:
+        sorting_group_id: grp_gas
+  - platform: template
+    name: "Net Power Total"
+    web_server:
+      sorting_group_id: grp_p1
+    id: netto_vermogen_totaal
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    update_interval: 1s
+    lambda: |-
+      float net_l1 = (id(prod_l1).state > id(cons_l1).state)
+                      ? -id(prod_l1).state : id(cons_l1).state;
+      float net_l2 = (id(prod_l2).state > id(cons_l2).state)
+                      ? -id(prod_l2).state : id(cons_l2).state;
+      float net_l3 = (id(prod_l3).state > id(cons_l3).state)
+                      ? -id(prod_l3).state : id(cons_l3).state;
+      return (net_l1 + net_l2 + net_l3) * 1000.0;
+
+  # Dal + Normaal opgeteld. Met een dynamisch contract is het tariefonderscheid
+  # betekenisloos, dus dit is het enige kWh-getal dat telt. De vier losse
+  # tariefsensoren blijven bestaan voor de historie.
+  - platform: template
+    name: "Consumption Totaal"
+    id: p1_cons_totaal
+    web_server:
+      sorting_group_id: grp_p1
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    update_interval: 10s
+    lambda: |-
+      float dal = id(p1_cons_dal).state;
+      float normaal = id(p1_cons_normaal).state;
+      if (std::isnan(dal) || std::isnan(normaal)) return NAN;
+      return dal + normaal;
+
+  - platform: template
+    name: "Production Totaal"
+    id: p1_prod_totaal
+    web_server:
+      sorting_group_id: grp_p1
+    unit_of_measurement: "kWh"
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 3
+    update_interval: 10s
+    lambda: |-
+      float dal = id(p1_prod_dal).state;
+      float normaal = id(p1_prod_normaal).state;
+      if (std::isnan(dal) || std::isnan(normaal)) return NAN;
+      return dal + normaal;
+
+  - platform: uptime
+    name: "SlimmeLezer Uptime"
+  - platform: wifi_signal
+    name: "SlimmeLezer Wi-Fi Signal"
+    update_interval: 60s
+#------------------------# Water Meter #------------------------#
+# water meter pulses
+  - platform: pulse_meter
+    internal_filter_mode: "PULSE"
+    internal_filter: 50ms
+    pin:
+      number: GPIO32
+      mode:
+        input: true
+        pullup: true
+      allow_other_uses: true
+    id: watermeter_flow
+    name: "Water Meter Flow"
+    web_server:
+      sorting_group_id: grp_water
+    state_class: measurement
+    device_class: volume_flow_rate
+    unit_of_measurement: "L/min"
+    accuracy_decimals: 1
+    icon: "mdi:water-pump"
+    filters:
+      lambda: return x * atof(id(Select_pulse_water).current_option().c_str()) * 1000;
+
+# water meter total
+    total:
+      id: sensor_pulse_meter_total
+      name: "Water Meter Total"
+      web_server:
+        sorting_group_id: grp_water
+      state_class: "total_increasing"
+      device_class: water
+      icon: mdi:water
+      unit_of_measurement: "m³"
+      accuracy_decimals: 3
+      filters:
+        - multiply: 0.001
+      on_value:
+        # Deze sensor begint bij elke herstart weer op nul. Daarom wordt hier alleen het
+        # verschil sinds de vorige waarde opgeteld bij een global die wel bewaard blijft.
+        #
+        # 14-09-2026: niet optellen zolang het debiet boven de 30 L/min zit. Tussen 08-09
+        # en 14-09 telde hij 3.674 L terwijl de meter 1.098 L liep. Het verschil zat in
+        # twee klapperpieken: 09-09 12:20-12:30 (847 L) en 12-09 01:10-01:40 (1.825 L).
+        # Daarin mat hij 5 minuten lang gemiddeld 90-190 L/min en tot 575 L/min, met
+        # pulsen van 0,0 s - dat kan niet door een huisaansluiting. Echt verbruik kwam
+        # die week nooit boven 13,2 L/min, met pulsen van 2-3 s aan en uit. Beide pieken
+        # begonnen vlak na echt verbruik; vermoedelijk blijft de wijzer dan op de rand
+        # van de sensor staan. Het internal_filter van 50 ms vangt dat niet, het klapperen
+        # is trager. Het debiet komt van de vorige puls; aan het begin van een piek glipt
+        # er dus hooguit een liter of twee doorheen.
+        - lambda: |-
+            static float vorige = NAN;
+            const float GRENS_L_MIN = 30.0f;
+            if (!isnan(vorige) && x >= vorige) {
+              float debiet = id(watermeter_flow).state;
+              if (!isnan(debiet) && debiet > GRENS_L_MIN) {
+                id(water_m3_genegeerd) += (x - vorige);
+              } else {
+                id(water_m3_geteld) += (x - vorige);
+              }
+            }
+            vorige = x;
+
+# approximate water meter reading
+  - platform: template
+    id: watermeter_total
+    name: "Water Meter Reading"
+    web_server:
+      sorting_group_id: grp_water
+    state_class: "total_increasing"
+    device_class: water
+    icon: mdi:water
+    unit_of_measurement: "m³"
+    accuracy_decimals: 3
+    lambda: return id(initial_water_usage) + id(water_m3_geteld);
+
+# water pulses - web interface only for debugging
+  - platform: template
+    id: watermeter_flow_totaal
+    name: "Water Meter Flow Total"
+    web_server:
+      sorting_group_id: grp_water
+    state_class: "total_increasing"
+    accuracy_decimals: 0
+    lambda: return id(total_water_pulses);
+    internal: True
+
+# 14-09-2026: wat de debietgrens van 30 L/min heeft weggegooid. Diagnostisch.
+  - platform: template
+    name: "Water Genegeerd (klapperen)"
+    web_server:
+      sorting_group_id: grp_water
+    unit_of_measurement: "L"
+    accuracy_decimals: 0
+    icon: mdi:water-off
+    entity_category: diagnostic
+    state_class: "total_increasing"
+    lambda: return id(water_m3_genegeerd) * 1000.0f;
+
+# water meter total in liters
+  - platform: template
+    name: "Water Meter Total (L)"
+    web_server:
+      sorting_group_id: grp_water
+    unit_of_measurement: "L"
+    accuracy_decimals: 0
+    icon: mdi:water
+    lambda: |-
+      return id(sensor_pulse_meter_total).state * 1000;
+    state_class: "total_increasing"
+    device_class: water
+
+#------------------------# CT CLAMPS #------------------------#
+
+# GPIO34 = SIG mux 1 (white/red)
+  - platform: adc
+    pin: GPIO34
+    id: adc35
+    update_interval: never
+    attenuation: 12db
+
+  - platform: template
+    name: "DEBUG ADC mux1 DC"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "V"
+    accuracy_decimals: 4
+    update_interval: 10s
+    lambda: |-
+      float s = 0;
+      for (int i = 0; i < 200; i++) s += id(adc35).sample();
+      return s / 200.0f;
+
+  - platform: cd74hc4067
+    id: ai1
+    cd74hc4067_id: cd74hc4067_shared
+    number: 0
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 1:
+  - platform: cd74hc4067
+    id: ai2
+    cd74hc4067_id: cd74hc4067_shared
+    number: 1
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 2:  -> zit sinds 31-08-2026 fysiek op C9 (bedrading C2<->C9 gewisseld)
+  - platform: cd74hc4067
+    id: ai3
+    cd74hc4067_id: cd74hc4067_shared
+    number: 2
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 3:
+  - platform: cd74hc4067
+    id: ai4
+    cd74hc4067_id: cd74hc4067_shared
+    number: 3
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 4:
+  - platform: cd74hc4067
+    id: ai5
+    cd74hc4067_id: cd74hc4067_shared
+    number: 4
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 5:
+  - platform: cd74hc4067
+    id: ai6
+    cd74hc4067_id: cd74hc4067_shared
+    number: 5
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 6:
+  - platform: cd74hc4067
+    id: ai7
+    cd74hc4067_id: cd74hc4067_shared
+    number: 6
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 7:
+  - platform: cd74hc4067
+    id: ai8
+    cd74hc4067_id: cd74hc4067_shared
+    number: 7
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 8:
+  - platform: cd74hc4067
+    id: ai9
+    cd74hc4067_id: cd74hc4067_shared
+    number: 8
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 9:  -> zit sinds 31-08-2026 fysiek op C2 (bedrading C2<->C9 gewisseld)
+  - platform: cd74hc4067
+    id: ai10
+    cd74hc4067_id: cd74hc4067_shared
+    number: 9
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 10:
+  - platform: cd74hc4067
+    id: ai11
+    cd74hc4067_id: cd74hc4067_shared
+    number: 10
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 11:
+  - platform: cd74hc4067
+    id: ai12
+    cd74hc4067_id: cd74hc4067_shared
+    number: 11
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 12:
+  - platform: cd74hc4067
+    id: ai13
+    cd74hc4067_id: cd74hc4067_shared
+    number: 12
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 13:
+  - platform: cd74hc4067
+    id: ai14
+    cd74hc4067_id: cd74hc4067_shared
+    number: 13
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 14:
+  - platform: cd74hc4067
+    id: ai15
+    cd74hc4067_id: cd74hc4067_shared
+    number: 14
+    sensor: adc35
+    update_interval: 5s
+
+  # Channel 15:
+  - platform: cd74hc4067
+    id: ai16
+    cd74hc4067_id: cd74hc4067_shared
+    number: 15
+    sensor: adc35
+    update_interval: 5s
+
+  - platform: ct_clamp
+    sensor: ai1
+    id: RAW_ct1
+    name: "RAW ct_clamp 1 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_1
+    name: "Current CT 1"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct1).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power1
+    name: "Power CT 1"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_1).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai2
+    id: RAW_ct2
+    name: "RAW ct_clamp 2 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_2
+    name: "Current CT 2"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct2).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power2
+    name: "Power CT 2"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_2).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai3
+    id: RAW_ct3
+    name: "RAW ct_clamp 3 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_3
+    name: "Current CT 3"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct3).state;
+    filters:
+      # SCT013-015 met INGEBOUWDE burden; de 33 ohm op het bord is voor
+      # C2/C3/C4 weggeknipt (31-08-2026). Daarom de curve van de
+      # groepenmanager (~0,068 V/A) en niet die van de ringkernen
+      # (~0,0307 V/A) - dat scheelt ruim een factor twee.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      - calibrate_linear:
+          - 0.030 -> 0
+          - 0.233 -> 3.46551724137931
+          - 0.352 -> 5.213675213675214
+      # De kwadratische ruisaftrek van de ringkanalen staat hier NIET:
+      # die 0.042 is de ruisvloer bij de ringcurve en klopt niet op deze
+      # schaal. Opnieuw meten zodra de laadpaal een tijdje stil staat.
+      - lambda: if (x < 0.04) return 0; else return x;
+
+  - platform: template
+    id: power3
+    name: "Power CT 3"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_3).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai4
+    id: RAW_ct4
+    name: "RAW ct_clamp 4 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_4
+    name: "Current CT 4"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct4).state;
+    filters:
+      # SCT013-015 met INGEBOUWDE burden; de 33 ohm op het bord is voor
+      # C2/C3/C4 weggeknipt (31-08-2026). Daarom de curve van de
+      # groepenmanager (~0,068 V/A) en niet die van de ringkernen
+      # (~0,0307 V/A) - dat scheelt ruim een factor twee.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      - calibrate_linear:
+          - 0.030 -> 0
+          - 0.233 -> 3.46551724137931
+          - 0.352 -> 5.213675213675214
+      # De kwadratische ruisaftrek van de ringkanalen staat hier NIET:
+      # die 0.042 is de ruisvloer bij de ringcurve en klopt niet op deze
+      # schaal. Opnieuw meten zodra de laadpaal een tijdje stil staat.
+      - lambda: if (x < 0.04) return 0; else return x;
+
+  - platform: template
+    id: power4
+    name: "Power CT 4"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_4).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai5
+    id: RAW_ct5
+    name: "RAW ct_clamp 5 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_5
+    name: "Current CT 5"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct5).state;
+    filters:
+      # SCT013-015 met INGEBOUWDE burden; de 33 ohm op het bord is voor
+      # C2/C3/C4 weggeknipt (31-08-2026). Daarom de curve van de
+      # groepenmanager (~0,068 V/A) en niet die van de ringkernen
+      # (~0,0307 V/A) - dat scheelt ruim een factor twee.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      - calibrate_linear:
+          - 0.030 -> 0
+          - 0.233 -> 3.46551724137931
+          - 0.352 -> 5.213675213675214
+      # De kwadratische ruisaftrek van de ringkanalen staat hier NIET:
+      # die 0.042 is de ruisvloer bij de ringcurve en klopt niet op deze
+      # schaal. Opnieuw meten zodra de laadpaal een tijdje stil staat.
+      - lambda: if (x < 0.04) return 0; else return x;
+
+  - platform: template
+    id: power5
+    name: "Power CT 5"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_5).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai6
+    id: RAW_ct6
+    name: "RAW ct_clamp 6 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_6
+    name: "Current CT 6"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct6).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power6
+    name: "Power CT 6"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_6).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai7
+    id: RAW_ct7
+    name: "RAW ct_clamp 7 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  # Calibrated value derived from the RAW sensor via template
+  - platform: template
+    id: Measured_Current_7
+    name: "Current CT 7"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct7).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power7
+    name: "Power CT 7"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_7).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai8
+    id: RAW_ct8
+    name: "RAW ct_clamp 8 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_8
+    name: "Current CT 8"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct8).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power8
+    name: "Power CT 8"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_8).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai9
+    id: RAW_ct9
+    name: "RAW ct_clamp 9 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_9
+    name: "Current CT 9"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct9).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power9
+    name: "Power CT 9"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_9).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai10
+    id: RAW_ct10
+    name: "RAW ct_clamp 10 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_10
+    name: "Current CT 10"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct10).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power10
+    name: "Power CT 10"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_10).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai11
+    id: RAW_ct11
+    name: "RAW ct_clamp 11 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_11
+    name: "Current CT 11"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct11).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power11
+    name: "Power CT 11"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_11).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai12
+    id: RAW_ct12
+    name: "RAW ct_clamp 12 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_12
+    name: "Current CT 12"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct12).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power12
+    name: "Power CT 12"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_12).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai13
+    id: RAW_ct13
+    name: "RAW ct_clamp 13 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_13
+    name: "Current CT 13"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct13).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power13
+    name: "Power CT 13"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_13).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai14
+    id: RAW_ct14
+    name: "RAW ct_clamp 14 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_14
+    name: "Current CT 14"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct14).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power14
+    name: "Power CT 14"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_14).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai15
+    id: RAW_ct15
+    name: "RAW ct_clamp 15 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_15
+    name: "Current CT 15"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct15).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power15
+    name: "Power CT 15"
+    web_server:
+      sorting_group_id: grp_mux1
+    # Negative on purpose: this circuit only ever carries PV generation, and a CT
+    # clamp cannot sense direction. Flipping the sign makes it read as production
+    # (energy flowing into the house) instead of consumption.
+    lambda: return id(Measured_Current_15).state * -230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: ct_clamp
+    sensor: ai16
+    id: RAW_ct16
+    name: "RAW ct_clamp 16 (A)"
+    internal: true
+    web_server:
+      sorting_group_id: grp_mux1
+    update_interval: 5s
+    sample_duration: 1000ms
+    accuracy_decimals: 5
+  - platform: template
+    id: Measured_Current_16
+    name: "Current CT 16"
+    web_server:
+      sorting_group_id: grp_mux1
+    unit_of_measurement: "A"
+    device_class: current
+    update_interval: 5s
+    lambda: return id(RAW_ct16).state;
+    filters:
+      # EERST dempen: de ruisaftrek hieronder werkt alleen op een stabiele meting.
+      # Op losse samples schiet RAW regelmatig onder de ruisdrempel, en dan levert
+      # de aftrek een harde 0 op terwijl er wel degelijk vermogen loopt.
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+      # DAARNA de ruisvloer kwadratisch weghalen: gemeten^2 = signaal^2 + ruis^2.
+      # Lege kanalen liggen op RAW ~0.042 terwijl de curve 0.006 "nul" noemt.
+      # Grote signalen verschuiven nauwelijks (accu 0.3454 -> 0.3428, <1%).
+      - lambda: |-
+          const float noise = 0.042f;
+          return x > noise ? sqrtf(x * x - noise * noise) : 0.0f;
+      - calibrate_linear:
+          - 0.00600 -> 0
+          - 0.10863 -> 3.448
+          - 0.17766 -> 5.191
+          - 0.26307 -> 8.478
+      # Make everything below 0.04A appear as just 0A.
+      - lambda: if (x < 0.04) return 0; else return x;
+  - platform: template
+    id: power16
+    name: "Power CT 16"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: return id(Measured_Current_16).state * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  # ---- Laadpaal: één kWh-teller over de drie fases ----
+  # 31-08-2026: de per-kanaal kWh-tellers zijn eruit; alleen de laadpaal
+  # houdt nog een teller, en dan als één getal over L1+L2+L3 samen.
+  - platform: template
+    id: laadpaal_w_totaal
+    name: "Power CT 3+4+5 (example group total)"
+    web_server:
+      sorting_group_id: grp_mux1
+    lambda: |-
+      return ( id(Measured_Current_3).state
+             + id(Measured_Current_4).state
+             + id(Measured_Current_5).state ) * 230;
+    device_class: power
+    unit_of_measurement: 'W'
+    update_interval: 5s
+    state_class: measurement
+
+  - platform: total_daily_energy
+    id: tde_laadpaal
+    name: "Energy CT 3+4+5 (example group total)"
+    power_id: laadpaal_w_totaal
+    web_server:
+      sorting_group_id: grp_mux1
+    filters:
+        - multiply: 0.001
+    unit_of_measurement: kWh
+    accuracy_decimals: 3
+    icon: mdi:lightning-bolt
+    device_class: energy
+
+
+switch:
+  - platform: gpio
+    pin:
+      number: GPIO33   # moved from GPIO27 (now S3 of the mux)
+      inverted: true   # rev C: relaisbordje is actief-laag
+    restore_mode: ALWAYS_OFF
+    name: "Doorbell Relay Huis"
+    web_server:
+      sorting_group_id: grp_doorbell
+    id: relay_housebell
+    icon: mdi:alarm-bell
+
+  - platform: gpio
+    pin:
+      number: GPIO25
+      inverted: true   # rev C: relaisbordje is actief-laag
+    restore_mode: ALWAYS_OFF
+    name: "Doorbell Relay Garage"
+    web_server:
+      sorting_group_id: grp_doorbell
+    id: relay_garagebell
+    icon: mdi:alarm-bell
+
+  # Kill-switch voor de nagebootste P1-uitgang naar de Alfen.
+  - platform: template
+    name: "P1 Out Aan"
+    id: p1o_aan
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    icon: mdi:transmission-tower-export
+
+  - platform: template
+    name: Doorbell Garage Muted
+    web_server:
+      sorting_group_id: grp_doorbell
+    id: garage_active
+    turn_on_action:
+      - globals.set:
+          id: garage
+          value: 'true'
+    turn_off_action:
+      - globals.set:
+          id: garage
+          value: 'false'
+    lambda: |-
+      return id(garage);
+
+  - platform: template
+    name: Doorbell House Muted
+    web_server:
+      sorting_group_id: grp_doorbell
+    id: house_active
+    turn_on_action:
+      - globals.set:
+          id: house
+          value: 'true'
+    turn_off_action:
+      - globals.set:
+          id: house
+          value: 'false'
+    lambda: |-
+      return id(house);
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO26
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Doorbell"
+    web_server:
+      sorting_group_id: grp_doorbell
+    filters:
+      # Small filter, to debounce the button press.
+      - delayed_on: 25ms
+      - delayed_off: 25ms
+    on_press:
+      then:
+      # Only turn on the house when it is active.
+      - if:
+          condition:
+            - switch.is_off: garage_active
+          then:
+            - switch.turn_on: relay_garagebell
+      - if:
+          condition:
+            - switch.is_off: house_active
+          then:
+            - switch.turn_on: relay_housebell
+
+    on_release:
+      # On release, turn of the house/garage bell.
+      - switch.turn_off: relay_garagebell
+      - delay: 50ms
+      - switch.turn_off: relay_housebell
+
+  - platform: gpio
+    id: water_sensor_status
+    name: "Water sensor status"
+    web_server:
+      sorting_group_id: grp_water
+    internal: false
+    use_interrupt: false
+    pin:
+      number: GPIO32
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+      allow_other_uses: true
+    on_press:
+      - lambda: |-
+          id(total_water_pulses) += 1;
+
+#------------------------# NUMBER SENSORS #------------------------#
+
+#https://github.com/huizebruin/s0tool/issues/156
+number:
+  - platform: template
+    name: "P1 Out Vermogen L1"
+    id: p1o_w_l1
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: -25000
+    max_value: 25000
+    step: 1
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:transmission-tower-export
+  - platform: template
+    name: "P1 Out Vermogen L2"
+    id: p1o_w_l2
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: -25000
+    max_value: 25000
+    step: 1
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:transmission-tower-export
+  - platform: template
+    name: "P1 Out Vermogen L3"
+    id: p1o_w_l3
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: -25000
+    max_value: 25000
+    step: 1
+    mode: box
+    unit_of_measurement: "W"
+    icon: mdi:transmission-tower-export
+  - platform: template
+    name: "P1 Out Spanning L1 (reserve)"
+    id: p1o_v_l1
+    optimistic: true
+    restore_value: true
+    initial_value: 230
+    min_value: 100
+    max_value: 300
+    step: 0.1
+    mode: box
+    unit_of_measurement: "V"
+    icon: mdi:transmission-tower-export
+  - platform: template
+    name: "P1 Out Spanning L2 (reserve)"
+    id: p1o_v_l2
+    optimistic: true
+    restore_value: true
+    initial_value: 230
+    min_value: 100
+    max_value: 300
+    step: 0.1
+    mode: box
+    unit_of_measurement: "V"
+    icon: mdi:transmission-tower-export
+  - platform: template
+    name: "P1 Out Spanning L3 (reserve)"
+    id: p1o_v_l3
+    optimistic: true
+    restore_value: true
+    initial_value: 230
+    min_value: 100
+    max_value: 300
+    step: 0.1
+    mode: box
+    unit_of_measurement: "V"
+    icon: mdi:transmission-tower-export
+  - platform: template
+    name: "P1 Out Tarief (1 dal, 2 normaal)"
+    id: p1o_tariff
+    optimistic: true
+    restore_value: true
+    initial_value: 2
+    min_value: 1
+    max_value: 2
+    step: 1
+    mode: box
+    unit_of_measurement: ""
+    icon: mdi:transmission-tower-export
+  - platform: template
+    name: "P1 Out Import dal"
+    id: p1o_kwh_in1
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: 0
+    max_value: 10000000
+    step: 0.001
+    mode: box
+    unit_of_measurement: "kWh"
+    icon: mdi:transmission-tower-export
+    set_action:
+      - lambda: 'id(p1o_acc)[0] = x;'
+  - platform: template
+    name: "P1 Out Import normaal"
+    id: p1o_kwh_in2
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: 0
+    max_value: 10000000
+    step: 0.001
+    mode: box
+    unit_of_measurement: "kWh"
+    icon: mdi:transmission-tower-export
+    set_action:
+      - lambda: 'id(p1o_acc)[1] = x;'
+  - platform: template
+    name: "P1 Out Export dal"
+    id: p1o_kwh_out1
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: 0
+    max_value: 10000000
+    step: 0.001
+    mode: box
+    unit_of_measurement: "kWh"
+    icon: mdi:transmission-tower-export
+    set_action:
+      - lambda: 'id(p1o_acc)[2] = x;'
+  - platform: template
+    name: "P1 Out Export normaal"
+    id: p1o_kwh_out2
+    optimistic: true
+    restore_value: true
+    initial_value: 0
+    min_value: 0
+    max_value: 10000000
+    step: 0.001
+    mode: box
+    unit_of_measurement: "kWh"
+    icon: mdi:transmission-tower-export
+    set_action:
+      - lambda: 'id(p1o_acc)[3] = x;'
+  - name: Initial Meter Reading m3
+    web_server:
+      sorting_group_id: grp_water
+    platform: template
+    id: initial_water_value
+    device_class: water
+    min_value: 0
+    max_value: 100000
+    step: 0.001
+    entity_category: config
+    icon: mdi:water
+    unit_of_measurement: "m³"
+    disabled_by_default: True
+    set_action:
+      # 08-09-2026: zette hiervoor total_water_pulses, en die telt sinds vandaag niet
+      # meer mee in de meterstand. Nu zet dit veld de stand rechtstreeks: de opgegeven
+      # m3 wordt de nieuwe basis en beide tellers beginnen opnieuw.
+      - globals.set:
+          id: initial_water_usage
+          value: !lambda "return x;"
+      - globals.set:
+          id: water_m3_geteld
+          value: "0"
+      - globals.set:
+          id: total_water_pulses
+          value: "0"
+
+# ---- P1-uitgang: elke seconde een DSMR 5-telegram naar de Alfen ----
+# 26-10-2026. De velden zijn de number-entities "P1 Out ..." hierboven; vermogen
+# per fase met teken (negatief = export). Spanning komt van de echte P1-ingang
+# van dit bord als die geldig is, anders de reservewaarde. Stroom wordt
+# berekend. De kWh-tellers lopen mee met het vermogen (dal/normaal volgens het
+# tarief) en worden elke 10 min in de number-entities bewaard. CRC-16/ARC
+# (poly 0xA001 gespiegeld, init 0) over alles van '/' tot en met '!'.
+# Zenden alleen als switch "P1 Out Aan" aan staat (na een reboot komt hij terug in de laatst gekozen stand).
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!id(p1o_acc_init)) {
+            id(p1o_acc)[0] = id(p1o_kwh_in1).state;
+            id(p1o_acc)[1] = id(p1o_kwh_in2).state;
+            id(p1o_acc)[2] = id(p1o_kwh_out1).state;
+            id(p1o_acc)[3] = id(p1o_kwh_out2).state;
+            id(p1o_acc_init) = true;
+          }
+          if (!id(p1o_aan).state) {
+            id(p1o_wasactief) = false;
+            return;
+          }
+          auto pos = [](float x) { return x > 0 ? x : 0.0f; };
+          float w[3] = {id(p1o_w_l1).state, id(p1o_w_l2).state, id(p1o_w_l3).state};
+          float vres[3] = {id(p1o_v_l1).state, id(p1o_v_l2).state, id(p1o_v_l3).state};
+          float v[3];
+          v[0] = (id(p1_v_l1).has_state() && id(p1_v_l1).state > 100) ? id(p1_v_l1).state : vres[0];
+          v[1] = (id(p1_v_l2).has_state() && id(p1_v_l2).state > 100) ? id(p1_v_l2).state : vres[1];
+          v[2] = (id(p1_v_l3).has_state() && id(p1_v_l3).state > 100) ? id(p1_v_l3).state : vres[2];
+          float win[3], wout[3];
+          for (int i = 0; i < 3; i++) {
+            win[i] = pos(w[i]);
+            wout[i] = pos(-w[i]);
+          }
+          // kWh meetellen
+          int tar = ((int) id(p1o_tariff).state == 1) ? 0 : 1;
+          id(p1o_acc)[tar] += (win[0] + win[1] + win[2]) / 3600000.0;
+          id(p1o_acc)[2 + tar] += (wout[0] + wout[1] + wout[2]) / 3600000.0;
+          if (millis() - id(p1o_acc_save) > 600000) {
+            id(p1o_acc_save) = millis();
+            id(p1o_kwh_in1).make_call().set_value(id(p1o_acc)[0]).perform();
+            id(p1o_kwh_in2).make_call().set_value(id(p1o_acc)[1]).perform();
+            id(p1o_kwh_out1).make_call().set_value(id(p1o_acc)[2]).perform();
+            id(p1o_kwh_out2).make_call().set_value(id(p1o_acc)[3]).perform();
+          }
+          char b[96];
+          std::string t;
+          t.reserve(1024);
+          t += "/ESP5\\2ESP32CT\r\n\r\n";
+          t += "1-3:0.2.8(50)\r\n";
+          auto now = id(homeassistant_time).now();
+          if (now.is_valid()) {
+            time_t ts = now.timestamp;
+            struct tm lt;
+            localtime_r(&ts, &lt);
+            snprintf(b, sizeof(b), "0-0:1.0.0(%02d%02d%02d%02d%02d%02d%c)\r\n", lt.tm_year % 100, lt.tm_mon + 1,
+                     lt.tm_mday, lt.tm_hour, lt.tm_min, lt.tm_sec, lt.tm_isdst > 0 ? 'S' : 'W');
+          } else {
+            snprintf(b, sizeof(b), "0-0:1.0.0(000101000000W)\r\n");
+          }
+          t += b;
+          t += "0-0:96.1.1(4530303034303030303030303030303030)\r\n";
+          static const char *kwh[4] = {"1-0:1.8.1", "1-0:1.8.2", "1-0:2.8.1", "1-0:2.8.2"};
+          for (int i = 0; i < 4; i++) {
+            snprintf(b, sizeof(b), "%s(%010.3f*kWh)\r\n", kwh[i], (float) id(p1o_acc)[i]);
+            t += b;
+          }
+          snprintf(b, sizeof(b), "0-0:96.14.0(%04d)\r\n", tar + 1);
+          t += b;
+          snprintf(b, sizeof(b), "1-0:1.7.0(%06.3f*kW)\r\n1-0:2.7.0(%06.3f*kW)\r\n",
+                   (win[0] + win[1] + win[2]) / 1000.0f, (wout[0] + wout[1] + wout[2]) / 1000.0f);
+          t += b;
+          static const char *pin[3] = {"1-0:21.7.0", "1-0:41.7.0", "1-0:61.7.0"};
+          static const char *pout[3] = {"1-0:22.7.0", "1-0:42.7.0", "1-0:62.7.0"};
+          static const char *volt[3] = {"1-0:32.7.0", "1-0:52.7.0", "1-0:72.7.0"};
+          static const char *amp[3] = {"1-0:31.7.0", "1-0:51.7.0", "1-0:71.7.0"};
+          for (int i = 0; i < 3; i++) {
+            snprintf(b, sizeof(b), "%s(%06.3f*kW)\r\n", pin[i], win[i] / 1000.0f);
+            t += b;
+            snprintf(b, sizeof(b), "%s(%06.3f*kW)\r\n", pout[i], wout[i] / 1000.0f);
+            t += b;
+          }
+          for (int i = 0; i < 3; i++) {
+            snprintf(b, sizeof(b), "%s(%05.1f*V)\r\n", volt[i], v[i]);
+            t += b;
+            float a = (win[i] + wout[i]) / v[i];
+            snprintf(b, sizeof(b), "%s(%03d*A)\r\n", amp[i], (int) (a + 0.5f));
+            t += b;
+          }
+          t += "!";
+          uint16_t crc = 0;
+          for (unsigned char c : t) {
+            crc ^= c;
+            for (int k = 0; k < 8; k++)
+              crc = (crc & 1) ? (crc >> 1) ^ 0xA001 : (crc >> 1);
+          }
+          snprintf(b, sizeof(b), "%04X\r\n", crc);
+          t += b;
+          id(uart_p1out).write_str(t.c_str());
+          if (!id(p1o_wasactief)) {
+            id(p1o_wasactief) = true;
+            ESP_LOGI("p1out", "zenden gestart, telegram:\n%s", t.c_str());
+          }

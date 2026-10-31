@@ -1,0 +1,28 @@
+# Gitignore settings for ESPHome
+# This is an example and may include too much for your use-case.
+# You can modify this file to suit your needs.
+/.esphome/
+/secrets.yaml
+
+# Python / build output
+__pycache__/
+*.pyc
+
+# Old versions and unrelated files
+kanalen.md.voor-*
+afval_flow.json
+OVERDRACHT.md
+
+# Not for the public repo
+hardware/esp32ct-revc/esp32ct-revb-backups/
+hardware/esp32ct-asbuilt/*.net
+esp32ct.yaml
+kanalen.md
+hardware/esp32ct-revc/*.dsn
+hardware/esp32ct-revc/*.ses
+hardware/esp32ct-revc/*-freerouting.log
+hardware/esp32ct-revc/esp32ct-revc.net
+README-github-concept.md
+
+# Local working folder with personal paths (copies of the useful files are in 3dhouse/)
+hardware/PCB_houder_R13_opgeslagen_2026-10-18/

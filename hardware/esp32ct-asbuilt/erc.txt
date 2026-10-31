@@ -1,0 +1,19 @@
+ERC-rapport (2026-09-22T23:27:24+0200, codering UTF8)
+
+***** Blad /
+
+***** Blad /Voeding en VBIAS/
+
+***** Blad /Multiplexers/
+
+***** Blad /CT-kanalen 1-11/
+
+***** Blad /CT-kanalen 12-22/
+
+***** Blad /P1 slimme meter/
+
+***** Blad /Deurbel en watermeter/
+
+***** Blad /P1-uitgang naar laadpaal (NIEUW)/
+
+ ** ERC-berichten: 0 Fouten 0 Waarschuwingen 0
