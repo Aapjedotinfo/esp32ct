@@ -4,8 +4,8 @@ Afgeleid uit de netlist van rev C (`esp32ct-revc/esp32ct-revc.net`) en naast
 de draaiende firmware (`../firmware/esp32ct-revc.yaml`) gelegd. Module: MH-ET Live ESP32
 MiniKit, board `mhetesp32minikit`.
 
-Bijna alles blijft zoals het is. **Voor rev C moeten er vier dingen in de
-YAML veranderen:**
+Bijna alles blijft zoals het is. **Voor rev C zijn vier dingen in de YAML
+anders dan voor het oude bord; ze staan al in `firmware/esp32ct-revc.yaml`:**
 
 | # | Wat | Nu (huidige bord) | Rev C |
 |---|---|---|---|

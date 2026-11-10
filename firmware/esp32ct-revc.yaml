@@ -165,7 +165,8 @@ uart:
     rx_buffer_size: 1700
     id: uart_bus
   # rev C: nagebootste P1-poort naar de laadpaal. Q4 inverteert al in hardware,
-  # dus niet inverted. Het doorsturen van het telegram zit er nog niet in.
+  # dus niet inverted. Het telegram wordt onderaan in de interval opgebouwd
+  # (P1 Out ...); nog niet getest tegen de laadpaal.
   - tx_pin: GPIO17
     baud_rate: 115200
     id: uart_p1out

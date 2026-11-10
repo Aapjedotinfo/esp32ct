@@ -1,6 +1,6 @@
 # ESP32CT
 
-**16-channel CT-clamp energy monitor with P1 in/out** (ESP32, ESPHome, KiCad), and a bit of help of Claude.
+**16-channel CT-clamp energy monitor with P1 in/out** (ESP32, ESPHome, KiCad), and a bit of help from Claude.
 
 ![Hardware: CERN-OHL-W-2.0](https://img.shields.io/badge/hardware-CERN--OHL--W--2.0-blue)
 ![Firmware: MIT](https://img.shields.io/badge/firmware-MIT-green)
@@ -23,7 +23,7 @@ meter cupboard and see what your dryer, oven, EV charger and heat pump use separ
 - **16 CT-clamp channels** through one CD74HC4067 analog multiplexer and the ESP32's ADC
 - **P1 input** (RJ12) to read a Dutch/Belgian smart meter (DSMR)
 - **P1 output** (RJ12) that imitates a smart meter, so an EV charger can be load-balanced
-  against values you choose (developed against an Alfen charger)
+  against values you choose (designed with an Alfen charger in mind; not yet verified against a real charger)
 - **Water meter** pulse input (inductive 5 V NPN sensor)
 - **Doorbell** button input and two relay outputs via an external relay board
 
@@ -38,6 +38,16 @@ More views: [bottom render](hardware/esp32ct-revc/render_bottom.png), the
 [schematic](hardware/esp32ct-revc/esp32ct-revc.pdf) and the
 [placement drawing](hardware/esp32ct-revc/plaatsing.pdf). A photo of the installation
 (clamps on the distribution board) is still to be added.
+
+## Safety
+
+CT clamps go around mains wiring. Clamp only **insulated** conductors, and work on a live
+distribution board only if you are qualified; if unsure, have an electrician fit the clamps.
+A bare ring CT (1000:1, current output) with an open secondary develops a dangerous voltage
+while current flows: on this board that means opening a channel jumper (JP101-JP116) on a
+ring-CT channel, or a bad solder joint in its burden or jumper, while the conductor carries
+current. Only clamps with a built-in burden (SCT013 xA/1V) may have the jumper open.
+Everything here is provided without warranty; you are responsible for a safe installation.
 
 ## Why this design
 
@@ -125,7 +135,7 @@ This regenerates the schematic, checks the netlist, runs ERC, places and routes 
 board, runs DRC, and exports drawings, BOM and Gerbers. The checks it runs itself
 (netlist, layout) stop the build on failure. Errors reported by KiCad's export steps are
 not yet caught (known issue), so check the ERC/DRC reports and the Gerbers before
-ordering. Result of the last full run: **0 ERC, 0 DRC, 0 unconnected items.**
+ordering. Result of the last full run (25 September 2026): **0 ERC, 0 DRC, 0 unconnected items.** The Gerbers have not been rebuilt since and have not been tested by anyone but me.
 
 Do not edit the KiCad files by hand or save from KiCad: the next build overwrites them.
 Change the scripts (`sheets.py` for the schematic, `pcb.py` for placement) instead.

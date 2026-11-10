@@ -126,11 +126,10 @@ rechtstreeks terug naar de trafo.
 
 **Twee dingen om te weten:**
 
-1. **De firmware moet `inverted: true` krijgen.** Die bordjes zijn actief-laag:
-   het relais komt op als IN naar massa gaat. In `firmware/esp32ct-revc.yaml` staan de
-   switches op GPIO33 en GPIO25 nu zonder `inverted`, en een ESP32-pin is laag
-   tijdens het opstarten. Zonder die aanpassing gaat de bel bij elke reboot.
-   Bewust niet doorgevoerd: de deurbel op het huidige bord werkt nu.
+1. **De firmware heeft `inverted: true` nodig** (staat in `firmware/esp32ct-revc.yaml`). Die bordjes zijn actief-laag:
+   het relais komt op als IN naar massa gaat. De switches op GPIO33 en GPIO25 staan in `firmware/esp32ct-revc.yaml`
+   met `inverted: true` en `restore_mode: ALWAYS_OFF`; een ESP32-pin is laag
+   tijdens het opstarten, en zonder die aanpassing gaat de bel bij elke reboot.
 
 2. **Vier draden kan krap zijn.** De logicakant van zo'n bordje hangt aan 5 V,
    de ESP32 stuurt maar 3,3 V, dus er blijft 1,7 V over de opto-LED staan.
@@ -150,7 +149,7 @@ niet — 3,3 V is te laag en de polariteit klopt niet. Q4 lost beide op: de UART
 zendt gewoon normaal en de transistor draait het om, terwijl R14 de lijn naar
 5 V tilt.
 
-Wat de firmware nog moet doen:
+Wat de firmware doet (in `firmware/esp32ct-revc.yaml`; nog niet getest tegen de laadpaal):
 
 - UART2 op GPIO17, 115200 8N1 voor DSMR 5. **Niet** `inverted` in software —
   Q4 doet de inversie al in hardware.
