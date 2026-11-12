@@ -260,6 +260,11 @@ are welcome. Silkscreen text on the board is Dutch too.
 Rev C has been built and is running, but this is a hobby project made for one house.
 Honestly open:
 
+- **P1 input, known issue on rev C:** it works behind an active P1 splitter, but connected
+  directly to the meter two things are missing: RTS (J2 pin 2) must be 5 V, not the 3.3 V of
+  GPIO23, and P1_DATA (J2 pin 5) needs a pull-up to 5 V (the meter is open collector). A
+  bodge works; the fix for a next revision is described in
+  [`hardware/OPEN_PUNTEN.md`](hardware/OPEN_PUNTEN.md). Reported from the owner's measurements.
 - The firmware builds a DSMR 5 telegram with CRC-16/ARC for the P1 output, but the
   actual output signal, a loopback test into the board's own P1 input, and
   acceptance by the EV charger are all **unverified**.

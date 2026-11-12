@@ -95,6 +95,19 @@ Rev C, 25-09-2026. Elektrisch gelijk aan rev B; de pinbezetting ook:
   de watermeter en via F2 de laadpaal (tot 0,2 A): samen hooguit ~1 A. DSMR
   staat max 250 mA op pin 1 van de P1-poort toe, vandaar 200 mA voor F2.
 
+## Bekend probleem rev C: P1-ingang direct aan de meter (12-11-2026)
+
+Gemeld door de HA-sessie op basis van metingen van de eigenaar; hier vastgelegd, niet door ons nagemeten.
+
+Rev C leest de slimme meter alleen achter een actieve P1-splitter (een iungo P1-Extender-TX, ex-Eneco: die vraagt zelf data met RTS op 5 V en stuurt de data actief via een optocoupler). **Direct aan de meter** zijn twee dingen nodig die op het bord ontbreken:
+
+1. **RTS (J2 pin 2) moet 5 V zijn.** De meter zendt niet op de 3,3 V van GPIO23. Bodge op het bord van de eigenaar: het spoor GPIO23 naar J2 pin 2 is doorgeknipt en pin 2 met een draadje aan VCC gelegd. De firmware-instelling `request_pin: GPIO23` doet dan niets meer.
+2. **Pull-up op P1_DATA (J2 pin 5) naar 5 V.** De meter heeft een open-collector-uitgang. Voorstel 2k2 (1k tot 4k7), als bodge tussen J2 pad 2 en pad 5.
+
+**Voor rev D:** weerstand R_pullup van P1_DATA naar 5 V toevoegen, en RTS via een NPN of MOSFET naar 5 V (of een jumper naar 5 V). `check_net.py` moet daarna dat net en die weerstand bewaken. In deze rev C-versie van het schema bestaan ze niet, dus de controle blijft voorlopig ongewijzigd.
+
+Niet gebruikt: J2 pin 1 (+5 V van de meter). Let ook op de kabel: een gekruiste (rollover) RJ12-kabel werkt niet.
+
 ## Wat NIET geverifieerd is
 
 Ingetekend als de gangbare schakeling, niet van het huidige bord afgelezen.

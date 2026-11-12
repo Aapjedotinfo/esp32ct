@@ -183,6 +183,10 @@ bijvoorbeeld in een `interval` met `id(uart_p1_uit).write_str(...)`. Nog
 open: of de laadpaal DSMR 5 (115200 8N1) of DSMR 2/3 (9600 7E1) verwacht.
 Dat verandert alleen de `uart`-regels.
 
+## Let op: P1-ingang direct aan de meter
+
+Zie `OPEN_PUNTEN.md`, "Bekend probleem rev C". Kort: J2 pin 2 (RTS) moet 5 V zijn en J2 pin 5 (P1_DATA) heeft een pull-up naar 5 V nodig als de meter direct is aangesloten. Beide ontbreken op rev C; achter een actieve P1-splitter werkt het wel.
+
 ## Nog niet geverifieerd
 
 - Of de meter de 3,3 V van GPIO23 op RTS als "hoog" ziet. DSMR schrijft 4 tot
